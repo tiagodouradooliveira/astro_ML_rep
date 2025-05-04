@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from torch.utils import data
 from torch.nn.utils import clip_grad_norm_
-from torchvision import models
 import os
 import joblib
 from matplotlib import pyplot as plt
@@ -14,6 +13,7 @@ from tqdm import tqdm
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, f1_score
+import models
 
 torch.manual_seed(42)
 
@@ -35,9 +35,9 @@ BANDS = ["r",
 def toTableFormat(objs):
     regex_str = "(^.*?g/)|(^.*?i/)|(^.*?J0378/)|(^.*?J0395/)|(^.*?J0410/)|(^.*?J0430/)|(^.*?J0515/)|(^.*?J0660/)|(^.*?J0861/)|(^.*?r/)|(^.*?u/)|(^.*?z/)"
     if isinstance(objs, str):
-        # remove the regex string prefix regex_str
+        # Remove the regex string prefix regex_str
         obj = re.sub(regex_str, '', objs)
-        # remove the suffix .npy
+        # Remove the suffix .npy
         obj = obj[:-4]
 
         obj_tmp = list(obj)
@@ -95,7 +95,7 @@ def getObjs(survey_table, training_path, testing_path):
 
     # Preparing for train/val/test split
     train_ids = survey_table.loc[train_path_objs]
-    val_quantity = int((len(train_path_objs) + len(test_objs)) * 0.15)
+    val_quantity = int((len(train_path_objs) + len(test_objs)) * 0.05)
     bound_idx = len(train_path_objs) - val_quantity
 
     train_ids = survey_table.loc[train_path_objs]
@@ -109,6 +109,7 @@ def getObjs(survey_table, training_path, testing_path):
 
     return train_objs, train_objs_class, val_objs, val_objs_class, test_objs, test_objs_class
 
+# TODO: bands
 class AstroDataset(data.Dataset):
     def __init__(self, objs, objs_class, split, transforms):
         self.ids = objs
@@ -161,83 +162,26 @@ def init_params(model, glorot, name_clf):
 
     return model
 
-def model_picker(model_name, pre_trained=False, num_classes=3, glorot=True):
+
+
+def model_picker(model_name, default_weights=False, num_classes=3, glorot=True):
     if model_name == "alexnet":
-        model = models.alexnet(weights='DEFAULT') if pre_trained else models.alexnet()
-
-        model.features[0].in_channels = 12
-
-        model.classifier = nn.Sequential(
-            nn.Linear(256 * 6 * 6, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_classes),
-        )
-
-        model = init_params(model, glorot, "classifier")
+        model = models.alexnet(default_weights, num_classes, glorot)
 
     elif model_name == "vgg16":
-        model = models.vgg16(weights='DEFAULT') if pre_trained else models.vgg16()
+        model = models.vgg16(default_weights, num_classes, glorot)
 
-        model.features[0].in_channels = 12
-
-        model.classifier[-1] = nn.Linear(4096, num_classes)
-
-        model = init_params(model, glorot, "classifier")
+    elif model_name == "inceptionresnetv2":
+        model = models.inceptionresnetv2(default_weights, num_classes, glorot)
         
     elif model_name == "inception_v3":
-        model = models.inception_v3(weights='DEFAULT') if pre_trained else models.inception_v3()
+        model = models.inception_v3(default_weights, num_classes, glorot)
 
-        model.Conv2d_1a_3x3.conv.in_channels = 12
-
-        model.fc = nn.Sequential(
-            nn.Linear(2048, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_classes),
-        )
-
-        model = init_params(model, glorot, "fc")
-
-    elif model_name == "resnet50":
-        model = models.resnet50(weights='DEFAULT') if pre_trained else models.resnet50()
-
-        model.conv1.in_channels = 12
-
-        model.fc = nn.Sequential(
-            nn.Linear(2048, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_classes),
-        )
-
-        model = init_params(model, glorot, "fc")
+    elif model_name == "resnext50":
+        model = models.resnext50(default_weights, num_classes, glorot)
 
     elif model_name == "densenet121":
-        model = models.densenet121(weights='DEFAULT') if pre_trained else models.densenet121()
-
-        model.features.conv0.in_channels = 12
-
-        model.classifier = nn.Sequential(
-            nn.Linear(1024, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, num_classes),
-        )
-
-        model = init_params(model, glorot, "classifier")
+        model = models.densenet121(default_weights, num_classes, glorot)
 
     else:
         raise ValueError(f"Model {model_name} not supported.")
