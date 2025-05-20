@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+from torch import nn, optim
 from torch.utils import data
 from torch.nn.utils import clip_grad_norm_
 import os
@@ -33,7 +33,7 @@ BANDS = ["r",
         "z"]
 
 def toTableFormat(objs):
-    regex_str = "(^.*?g/)|(^.*?i/)|(^.*?J0378/)|(^.*?J0395/)|(^.*?J0410/)|(^.*?J0430/)|(^.*?J0515/)|(^.*?J0660/)|(^.*?J0861/)|(^.*?r/)|(^.*?u/)|(^.*?z/)"
+    regex_str = "(^.*?/g/)|(^.*?/i/)|(^.*?/J0378/)|(^.*?/J0395/)|(^.*?/J0410/)|(^.*?/J0430/)|(^.*?/J0515/)|(^.*?/J0660/)|(^.*?/J0861/)|(^.*?/r/)|(^.*?/u/)|(^.*?/z/)"
     if isinstance(objs, str):
         # Remove the regex string prefix regex_str
         obj = re.sub(regex_str, '', objs)
@@ -55,12 +55,8 @@ def toTableFormat(objs):
             formattedObjs.append(''.join(obj_tmp))
         return formattedObjs
     
-# TODO: bands
-def toPathFormat(objs, objs_class, path):
-    formattedObjs = []
-    for obj, obj_class in zip(objs, objs_class):
-        formattedObjs.append(Path(os.path.join(path, class_decode[obj_class], (obj.replace('\'', '_') + ".npy"))))
-    return formattedObjs
+def toPathFormat(obj, obj_class, band, prefix_path):
+    return Path(os.path.join(prefix_path, class_decode[obj_class], band, (obj.replace('\'', '_') + ".npy")))
 
 def getObjs(survey_table, training_path, testing_path):
     ''' For objects listed in the survey table, but that could not be retrieved from the remote database '''
@@ -109,18 +105,21 @@ def getObjs(survey_table, training_path, testing_path):
 
     return train_objs, train_objs_class, val_objs, val_objs_class, test_objs, test_objs_class
 
-# TODO: bands
-class AstroDataset(data.Dataset):
-    def __init__(self, objs, objs_class, split, transforms):
+class PretrainDataset(data.Dataset):
+    def __init__(self, objs, survey_table, path, transforms):
         self.ids = objs
-        self.img_files = toPathFormat(list(objs), objs_class, split)
-        self.objs_class = objs_class
+        self.survey_table = survey_table
+        self.path = path
         self.transforms = transforms
 
     def __getitem__(self, index):
-        _img = fits.getdata(self.img_files[index]).astype(np.float32)
-        _label = self.objs_class[index]
+        _img = np.array([])
         _id = self.ids[index]
+        _label = self.survey_table.loc[_id].r_iso
+        _class = self.survey_table.loc[_id].target
+        for band in BANDS:
+            path = toPathFormat(_id, _class, band, self.path)
+            _img.append(np.load(path).astype(np.float32))
 
         if self.transforms is not None:
             return self.transforms(_img), _label, _id
@@ -129,40 +128,59 @@ class AstroDataset(data.Dataset):
             return _img, _label, _id
 
     def __len__(self):
-        return len(self.img_files)
+        return len(self.ids)
+
+class AstroDataset(data.Dataset):
+    def __init__(self, objs, objs_class, path, transforms):
+        self.ids = objs
+        self.objs_class = objs_class
+        self.path = path
+        self.transforms = transforms
+
+    def __getitem__(self, index):
+        _img = np.array([])
+        _label = self.objs_class[index]
+        _id = self.ids[index]
+        for band in BANDS:
+            path = toPathFormat(_id, _label, band, self.path)
+            _img.append(np.load(path).astype(np.float32))
+
+        if self.transforms is not None:
+            return self.transforms(_img), _label, _id
+
+        else:
+            return _img, _label, _id
+
+    def __len__(self):
+        return len(self.ids)
     
-def load_data(train_objs, train_objs_class, val_objs, val_objs_class,
-              test_objs, test_objs_class, batch_size, transform):
-    train_dataset = AstroDataset(train_objs, train_objs_class, "train", transform)
+def load_pretrain_data(survey_table, training_path, testing_path, batch_size, transform):
+    train_objs, train_objs_class, val_objs, val_objs_class, test_objs, test_objs_class = getObjs(survey_table, training_path, testing_path)
+
+    if (isinstance(survey_table.index[0], int)):
+        survey_table = survey_table.set_index('ID')
+
+    train_dataset = PretrainDataset(train_objs, survey_table, training_path, transform)
     train_dataloader = data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-    val_dataset = AstroDataset(val_objs, val_objs_class, "val", transform)
+    val_dataset = PretrainDataset(val_objs, survey_table, training_path, transform)
     val_dataloader = data.DataLoader(val_dataset, batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
-    test_dataset = AstroDataset(test_objs, test_objs_class, "test", transform)
+    return train_dataloader, val_dataloader
+
+def load_data(survey_table, training_path, testing_path, batch_size, transform):
+    train_objs, train_objs_class, val_objs, val_objs_class, test_objs, test_objs_class = getObjs(survey_table, training_path, testing_path)
+
+    train_dataset = AstroDataset(train_objs, train_objs_class, training_path, transform)
+    train_dataloader = data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=8, pin_memory=True)
+
+    val_dataset = AstroDataset(val_objs, val_objs_class, training_path, transform)
+    val_dataloader = data.DataLoader(val_dataset, batch_size, shuffle=False, num_workers=8, pin_memory=True)
+
+    test_dataset = AstroDataset(test_objs, test_objs_class, testing_path, transform)
     test_dataloader = data.DataLoader(test_dataset, batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
     return train_dataloader, val_dataloader, test_dataloader
-
-def init_params(model, glorot, name_clf):
-    gain = nn.init.calculate_gain('relu')
-
-    if name_clf == "classifier":
-        for layer in model.classifier:
-                if isinstance(layer, nn.Linear):
-                    if glorot:
-                        nn.init.xavier_normal_(layer.weight, gain)
-                    nn.init.constant_(layer.bias, 0.01)
-    else:
-        for layer in model.fc:
-                if isinstance(layer, nn.Linear):
-                    if glorot:
-                        nn.init.xavier_normal_(layer.weight, gain)
-                    nn.init.constant_(layer.bias, 0.01)
-
-    return model
-
-
 
 def model_picker(model_name, default_weights=False, num_classes=3, glorot=True):
     if model_name == "alexnet":
@@ -170,9 +188,6 @@ def model_picker(model_name, default_weights=False, num_classes=3, glorot=True):
 
     elif model_name == "vgg16":
         model = models.vgg16(default_weights, num_classes, glorot)
-
-    elif model_name == "inceptionresnetv2":
-        model = models.inceptionresnetv2(default_weights, num_classes, glorot)
         
     elif model_name == "inception_v3":
         model = models.inception_v3(default_weights, num_classes, glorot)
@@ -187,3 +202,15 @@ def model_picker(model_name, default_weights=False, num_classes=3, glorot=True):
         raise ValueError(f"Model {model_name} not supported.")
 
     return model
+
+def opt_picker(opt_name, params, lr=1e-5, weight_decay=0):
+    if opt_name == "rmsprop":
+        opt = optim.RMSprop(params, lr, weight_decay)
+    elif opt_name == "adam":
+        opt = optim.Adam(params, lr, weight_decay)
+    elif opt_name == "radam":
+        opt = optim.RAdam(params, lr, weight_decay)
+    else:
+        raise ValueError(f"Model {opt_name} not supported.")
+    
+    return opt
