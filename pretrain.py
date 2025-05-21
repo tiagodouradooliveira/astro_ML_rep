@@ -25,23 +25,26 @@ def pretrain(model, survey_table, glorot_init, training_path,
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
+    # Implement later
+    if model != "vgg16":
+        torch.save(obj=model.state_dict(), f=os.join(saved_models_path, "checkpoint_pretrain.pth"))
+        return 
+
     print("Getting pretrain routine dataloaders...")
     train_dataloader, val_dataloader = load_pretrain_data(
         survey_table, training_path, testing_path, batch_size, transform
     )
     print("Success.")
 
-    # Implement later
-    if model == "inceptionresnetv2" or model == "inception_v3" or model == "resnext50":
-        torch.save(obj=model.state_dict(), f=os.join(saved_models_path, "checkpoint_pretrain.pth"))
-        return 
-
-    criterion = CustomMAE()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
-
     best_loss = 1e6
 
-    model.features.requires_grad_(False)
+    for layer in model.features:
+        if (isinstance(layer, nn.Conv2d)):
+            layer.weight.requires_grad = False
+            layer.bias.requires_grad = False
+
+    criterion = CustomMAE()
+    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5)
 
     for epoch in tqdm(range(100)):
         model.train()

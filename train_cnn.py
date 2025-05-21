@@ -39,6 +39,15 @@ def train(model, device, opt_name, survey_table, training_path, testing_path,
     )
     print("Success.")
 
+    for layer in model.features:
+        if (isinstance(layer, nn.Conv2d)):
+            layer.weight.requires_grad = True
+            layer.bias.requires_grad = True
+    for layer in model.classifier:
+        if (isinstance(layer, nn.Linear)):
+            layer.weight.requires_grad = True
+            layer.bias.requires_grad = True
+
     criterion = nn.CrossEntropyLoss()
     optimizer = opt_picker(opt_name, model.params(), lr, weight_decay)
 
@@ -107,9 +116,9 @@ def main():
                  paths["testing_path"], args.batch_size, args.use_imgnet_weights,
                  transform, paths["saved_models_path"])
         
-        model = model.load_state_dict(torch.load(
+        model.load_state_dict(torch.load(
             os.join(paths["saved_models_path"], "checkpoint_pretrain.pth"), 
-            weights_only=True)).to(device)
+            weights_only=True))
     
 
     train(model, device, args.optimizer, survey_table, paths["training_path"],

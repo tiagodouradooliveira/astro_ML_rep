@@ -29,7 +29,7 @@ def init_clf_params(model, glorot, name_clf):
 def alexnet(default_weights, num_classes, glorot):
     model = models.alexnet(weights='DEFAULT') if default_weights else models.alexnet()
 
-    model.features[0].in_channels = 12
+    model.features[0] = nn.Conv2d(12, 64, kernel_size=11, stride=4, padding=2)
 
     model.classifier = nn.Sequential(
         nn.Linear(256 * 6 * 6, 4096),
@@ -48,7 +48,7 @@ def alexnet(default_weights, num_classes, glorot):
 def vgg16(default_weights, num_classes, glorot):
     model = models.vgg16(weights='DEFAULT') if default_weights else models.vgg16()
 
-    model.features[0].in_channels = 12
+    model.features[0] = nn.Conv2d(12, 64, kernel_size=3, padding=1)
 
     model.classifier[-1] = nn.Linear(4096, num_classes)
 
@@ -56,29 +56,10 @@ def vgg16(default_weights, num_classes, glorot):
 
     return model
 
-def inception_v3(default_weights, num_classes, glorot):
-    model = models.inception_v3(weights='DEFAULT') if default_weights else models.inception_v3()
-
-    model.Conv2d_1a_3x3.conv.in_channels = 12
-
-    model.fc = nn.Sequential(
-        nn.Linear(2048, 4096),
-        nn.ReLU(True),
-        nn.Dropout(),
-        nn.Linear(4096, 4096),
-        nn.ReLU(True),
-        nn.Dropout(),
-        nn.Linear(4096, num_classes),
-    )
-
-    model = init_clf_params(model, glorot, "fc")
-
-    return model
-
 def resnext50(default_weights, num_classes, glorot):
     model = models.resnext50_32x4d(weights='DEFAULT') if default_weights else models.resnext50_32x4d()
 
-    model.conv1.in_channels = 12
+    model.conv1 = nn.Conv2d(12, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
 
     model.fc = nn.Sequential(
         nn.Linear(512 * 4, 4096),
@@ -97,7 +78,7 @@ def resnext50(default_weights, num_classes, glorot):
 def densenet121(default_weights, num_classes, glorot):
     model = models.densenet121(weights='DEFAULT') if default_weights else models.densenet121()
 
-    model.features.conv0.in_channels = 12
+    model.features.conv0 = nn.Conv2d(12, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
 
     model.classifier = nn.Sequential(
         nn.Linear(1024, 4096),
